@@ -161,7 +161,7 @@ elif st.session_state.paso == 2:
         else:
             st.error(T["ai_off"])
             if st.button("🔄 Refresh"): st.rerun()
-    with c2: st.video("NO VIDEO AUN") 
+    with c2: st.video("https://youtu.be/cP0AqUvHKn8") 
     st.write("---")
 
 elif st.session_state.paso == 3:
