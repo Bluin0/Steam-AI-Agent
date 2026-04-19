@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import sys
 import requests
 import time
 import re
@@ -9,210 +10,260 @@ import re
 # ==========================================
 st.set_page_config(page_title="Steam AI Assistant", page_icon="🎮", layout="centered")
 
-RUTA_TXT = "juegos_filtrados.txt"
-
-# ==========================================
-# FUNCIONES DE IA Y RED
-# ==========================================
-def obtener_modelo_activo():
-    """Pregunta a LM Studio qué modelo tiene cargado actualmente."""
+def resource_path(relative_path):
     try:
-        res = requests.get("http://localhost:2901/v1/models", timeout=2)
-        if res.status_code == 200:
-            datos = res.json()
-            if "data" in datos and len(datos["data"]) > 0:
-                return datos["data"][0]["id"]
-    except:
-        return None
-    return None
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+RUTA_TXT = "juegos_filtrados.txt"
+RUTA_TEMP = "temp_appids.txt"
 
 # ==========================================
-# FUNCIONES DEL MOTOR DE ESCANEO (MASIVO)
+# DICCIONARIO MULTI-IDIOMA (INGLÉS BASE)
 # ==========================================
-def escanear_carpetas_appid(ruta_carpetas):
-    if not os.path.exists(ruta_carpetas):
-        return False, f"La ruta '{ruta_carpetas}' no existe en tu PC."
+TEXTOS = {
+    "English": {
+        "title1": "Welcome to Steam AI Assistant",
+        "title2": "🧠 Connect LM Studio",
+        "title3": "📂 Scan your Library",
+        "title4": "🤖 Your Personal Sommelier",
+        "next": "Next >",
+        "back": "< Back",
+        "instrucciones_ia": """
+        1. Open **LM Studio**.
+        2. Load model (**Llama 3.2 3B Instruct**).
+        3. Go to **Local Server** tab.
+        4. Set port to **2901** and click **START**.
+        """,
+        "path_label": "Steam Cache Path:",
+        "scan_btn": "Extract & Translate Games",
+        "ai_on": "🟢 Online: ",
+        "ai_off": "🔴 Offline (Check port 2901)",
+    },
+    "Español": {
+        "title1": "Bienvenido a Steam AI Assistant",
+        "title2": "🧠 Conectar LM Studio",
+        "title3": "📂 Escanear Biblioteca",
+        "title4": "🤖 Tu Sumiller Personal",
+        "next": "Siguiente >",
+        "back": "< Atrás",
+        "instrucciones_ia": """
+        1. Abre **LM Studio**.
+        2. Carga el modelo (**Llama 3.2 3B Instruct**).
+        3. Ve a la pestaña **Local Server**.
+        4. Pon el puerto **2901** y pulsa **START**.
+        """,
+        "path_label": "Ruta de la caché de Steam:",
+        "scan_btn": "Extraer y Traducir Juegos",
+        "ai_on": "🟢 Conectado: ",
+        "ai_off": "🔴 Desconectado (Revisa puerto 2901)",
+    }
+}
 
-    st.info("🔍 Buscando carpetas numéricas (AppIDs)...")
+# ==========================================
+# GESTIÓN DE ESTADOS Y CALLBACKS
+# ==========================================
+if "paso" not in st.session_state: st.session_state.paso = 1
+if "idioma" not in st.session_state: st.session_state.idioma = "English"
+
+def avanzar(): st.session_state.paso += 1
+def retroceder(): st.session_state.paso -= 1
+def actualizar_idioma(): st.session_state.idioma = st.session_state.selector
+
+T = TEXTOS[st.session_state.idioma]
+
+# ==========================================
+# FUNCIONES PRINCIPALES (LÓGICA ESTRICTA)
+# ==========================================
+def check_lm_studio():
+    try:
+        res = requests.get("http://localhost:2901/v1/models", timeout=1)
+        return res.json()["data"][0]["id"] if res.status_code == 200 else None
+    except: return None
+
+def procesar_biblioteca(ruta):
+    if not os.path.exists(ruta):
+        return False, "Error: Folder not found."
     
-    appids_encontrados = []
-    for nombre in os.listdir(ruta_carpetas):
-        ruta_completa = os.path.join(ruta_carpetas, nombre)
-        if os.path.isdir(ruta_completa) and nombre.isdigit():
-            appids_encontrados.append(nombre)
+    # PASO 1: Extraer números (AppIDs) de los nombres y guardar en TXT temporal
+    st.info("Paso 1/2: Extrayendo AppIDs de las carpetas...")
+    appids_encontrados = set()
+    elementos = os.listdir(ruta)
+    
+    for item in elementos:
+        # Busca cualquier número al principio del nombre de la carpeta/archivo
+        match = re.search(r'^(\d+)', item)
+        if match:
+            appids_encontrados.add(match.group(1))
             
     if not appids_encontrados:
-        return False, "No se han encontrado carpetas de Steam (números) en esa ruta."
+        return False, "Error: No AppIDs found in the folder."
 
-    st.info(f"📂 Encontradas {len(appids_encontrados)} carpetas. Consultando a Steam pacientemente...")
+    # Guardamos en el temporal
+    with open(RUTA_TEMP, "w", encoding="utf-8") as temp_file:
+        for aid in appids_encontrados:
+            temp_file.write(f"{aid}\n")
+
+    # PASO 2: Leer el temporal y traducir ESTRICTAMENTE a juegos
+    st.info("Paso 2/2: Traduciendo AppIDs y filtrando solo juegos...")
     
-    juegos_reales = 0
+    with open(RUTA_TEMP, "r", encoding="utf-8") as temp_file:
+        lista_ids = [line.strip() for line in temp_file.readlines()]
+
+    juegos_puros = []
+    total = len(lista_ids)
+    
     barra = st.progress(0)
-    texto = st.empty()
-    
-    open(RUTA_TXT, 'w', encoding='utf-8').close()
+    texto_progreso = st.empty()
 
-    for idx, appid in enumerate(appids_encontrados):
-        url_steam = f"https://store.steampowered.com/api/appdetails?appids={appid}"
-        
+    for i, aid in enumerate(lista_ids):
         try:
-            res = requests.get(url_steam, timeout=5)
-            if res.status_code == 200:
-                datos = res.json()
-                if datos and str(appid) in datos and datos[str(appid)]['success']:
-                    info = datos[str(appid)]['data']
-                    
-                    if info.get('type') == 'game':
-                        nombre_juego = info.get('name', 'Desconocido')
-                        with open(RUTA_TXT, "a", encoding="utf-8") as f:
-                            f.write(f"{appid} == ({nombre_juego})\n")
-                        juegos_reales += 1
-        except:
-            pass 
+            # Consulta a Steam
+            url = f"https://store.steampowered.com/api/appdetails?appids={aid}"
+            res = requests.get(url, timeout=3).json()
             
-        barra.progress((idx + 1) / len(appids_encontrados))
-        texto.text(f"Procesando carpeta: {idx+1}/{len(appids_encontrados)} | Juegos filtrados: {juegos_reales}")
+            # Filtro Ultra Estricto
+            if res and res[str(aid)]["success"]:
+                datos = res[str(aid)]["data"]
+                # Si no dice exactamente "game", lo ignoramos completamente
+                if datos.get("type") == "game":
+                    juegos_puros.append(datos["name"])
+        except:
+            pass # Si la API falla, seguimos
+            
+        # UI
+        barra.progress((i + 1) / total)
+        texto_progreso.text(f"Analizados: {i+1}/{total} | Juegos reales encontrados: {len(juegos_puros)}")
+        time.sleep(0.4) # Retraso para no saturar la API
         
-        time.sleep(1.5)
+    # PASO 3: Guardar resultado final
+    if juegos_puros:
+        with open(RUTA_TXT, "w", encoding="utf-8") as f:
+            for juego in sorted(juegos_puros):
+                f.write(f"{juego}\n")
         
-    return True, f"¡Proceso completado! Se han guardado {juegos_reales} juegos reales."
+        # Limpieza del archivo temporal
+        if os.path.exists(RUTA_TEMP):
+            os.remove(RUTA_TEMP)
+            
+        return True, f"¡Éxito! {len(juegos_puros)} juegos guardados en tu lista."
+    else:
+        return False, "No se encontraron juegos válidos tras el filtro."
 
 # ==========================================
-# FUNCIÓN: RESET DE FÁBRICA
+# INTERFAZ: WIZARD
 # ==========================================
-def hard_reset():
-    """Borra el archivo de texto y limpia la memoria de la sesión para volver al tutorial."""
-    if os.path.exists(RUTA_TXT):
-        os.remove(RUTA_TXT)
-    st.session_state.clear()
-    st.rerun()
 
-# ==========================================
-# PANTALLA 1: ONBOARDING
-# ==========================================
-def pantalla_onboarding():
-    st.title("👋 ¡Bienvenido a Steam AI Assistant!")
-    st.markdown("Configura tu Asistente Personal en 3 pasos.")
-    
-    with st.expander("1. Instalar LM Studio", expanded=True):
-        st.write("Descarga e instala [LM Studio](https://lmstudio.ai/) para procesar la IA de forma local y privada.")
-    
-    with st.expander("2. Descargar un Modelo", expanded=True):
-        st.write("Descarga uno de estos modelos en LM Studio según tu RAM:")
-        st.info("**🟢 8GB RAM:** `Llama-3.2-3B-Instruct` o `Qwen2.5-Coder-1.5B`")
-        st.warning("**🟡 16GB RAM:** `Llama-3.1-8B-Instruct` o `Qwen2.5-7B`")
-        
-    with st.expander("3. Encender el Servidor", expanded=True):
-        st.markdown("En LM Studio, ve a **Local Server**, carga el modelo y pulsa **Start Server** (Puerto 2901).")
+# CONTENEDORES DE PANTALLA
+if st.session_state.paso == 1:
+    st.title(T["title1"])
+    opciones = ["English", "Español"]
+    idx = opciones.index(st.session_state.idioma)
+    st.selectbox("Language / Idioma", opciones, index=idx, key="selector", on_change=actualizar_idioma)
+    st.write("---")
 
-    st.divider()
-    st.subheader("Paso Final: Sincronizar Biblioteca (Escaneo Masivo)")
+elif st.session_state.paso == 2:
+    st.title(T["title2"])
     
-    st.caption("Asegúrate de poner la ruta de la carpeta que contiene las subcarpetas con los números (AppIDs).")
-    ruta_usuario = st.text_input(
-        "Ruta a escanear:", 
-        value=r"C:\Program Files (x86)\Steam\appcache\librarycache"
-    )
+    # Diseño compacto en dos columnas para evitar el scroll
+    c1, c2 = st.columns([1, 1.5])
     
-    if st.button("🚀 Iniciar Escaneo Paciente (Puede tardar)", type="primary", use_container_width=True):
-        with st.spinner("Analizando miles de carpetas pacientemente..."):
-            exito, msg = escanear_carpetas_appid(ruta_usuario)
-            if exito:
-                st.success(msg)
-                time.sleep(2)
-                st.rerun()
-            else:
-                st.error(msg)
-
-# ==========================================
-# PANTALLA 2: EL CHATBOT
-# ==========================================
-def pantalla_chatbot():
-    st.title("🤖 Asistente de Steam")
-    
-    modelo_actual = obtener_modelo_activo()
-    
-    # --- PANEL LATERAL ---
-    with st.sidebar:
-        if modelo_actual:
-            st.success(f"🟢 Conectado a LM Studio\n\nModelo: `{modelo_actual}`")
+    with c1:
+        st.markdown(T["instrucciones_ia"])
+        modelo = check_lm_studio()
+        if modelo:
+            st.success(f"{T['ai_on']} **{modelo}**")
         else:
-            st.error("🔴 LM Studio Desconectado\n\nAbre la app y arranca el Local Server (Puerto 2901).")
+            st.error(T["ai_off"])
+            if st.button("🔄 Refresh"): st.rerun()
+            
+    with c2:
+        # El vídeo ahora es más pequeño y encaja al lado
+        st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ") 
+    st.write("---")
+
+elif st.session_state.paso == 3:
+    st.title(T["title3"])
+    
+    ruta_input = st.text_input(T["path_label"], value=r"C:\Program Files (x86)\Steam\appcache\librarycache")
+    
+    if st.button(T["scan_btn"], type="primary"):
+        exito, msj = procesar_biblioteca(ruta_input)
+        if exito:
+            st.success(msj)
+        else:
+            st.error(msj)
+    st.write("---")
+
+elif st.session_state.paso == 4:
+    st.title(T["title4"])
+    
+    with st.sidebar:
+        if st.button("⚙️ Reset App"):
+            if os.path.exists(RUTA_TXT): os.remove(RUTA_TXT)
+            st.session_state.clear()
+            st.rerun()
             
         st.divider()
-        
-        # 1. VISOR DE JUEGOS
-        st.subheader("Tu Biblioteca")
         if os.path.exists(RUTA_TXT):
             with open(RUTA_TXT, "r", encoding="utf-8") as f:
-                lineas = f.readlines()
-            if lineas:
-                with st.expander(f"Ver los {len(lineas)} juegos"):
-                    for linea in lineas:
-                        st.text(linea.strip())
-            else:
-                st.info("Lista vacía.")
-                
-        st.divider()
-        
-        # 2. BOTÓN DE RESET PELIGROSO
-        st.subheader("Opciones de Sistema")
-        st.caption("Si quieres volver a escanear otra carpeta o empezar desde cero, usa este botón.")
-        if st.button("🚨 Reset de Fábrica", use_container_width=True):
-            hard_reset()
-
-    # --- CHAT PRINCIPAL ---
-    with open(RUTA_TXT, "r", encoding="utf-8") as f:
-        biblioteca = f.read()
-
-    prompt_sistema = f"""Eres un sumiller de videojuegos experto.
-    [BIBLIOTECA DEL USUARIO]
-    {biblioteca}
-    [FIN]
-    Reglas: 
-    1. Si pide juego al azar, elige uno de la lista.
-    2. Si pide recomendación, busca en la lista. Si no hay, dilo.
-    3. PROHIBIDO inventar juegos que no estén en la lista.
-    4. Usa los géneros reales de los videojuegos."""
+                juegos = f.readlines()
+            st.header(f"🎮 Games ({len(juegos)})")
+            with st.expander("View Library"):
+                for j in juegos: st.markdown(f"- {j.strip()}")
 
     if "mensajes" not in st.session_state:
-        st.session_state.mensajes = [{"role": "system", "content": prompt_sistema}]
+        st.session_state.mensajes = [{"role": "assistant", "content": "Hello! Ask me what you should play today."}]
 
-    for msg in st.session_state.mensajes:
-        if msg["role"] != "system":
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
+    for m in st.session_state.mensajes:
+        with st.chat_message(m["role"]): st.write(m["content"])
 
-    pregunta = st.chat_input("Pídele un juego al azar o una recomendación...", disabled=not modelo_actual)
-
-    if pregunta and modelo_actual:
-        with st.chat_message("user"): st.markdown(pregunta)
-        st.session_state.mensajes.append({"role": "user", "content": pregunta})
-
+    if prompt := st.chat_input("Type your message here..."):
+        st.session_state.mensajes.append({"role": "user", "content": prompt})
+        with st.chat_message("user"): st.write(prompt)
+        
         with st.chat_message("assistant"):
-            placeholder = st.empty()
-            placeholder.markdown("Pensando...")
-            
-            try:
-                res = requests.post("http://localhost:2901/v1/chat/completions", json={
-                    "model": modelo_actual,
-                    "messages": st.session_state.mensajes,
-                    "temperature": 0.4,
-                    "max_tokens": 800
-                })
-                if res.status_code == 200:
-                    respuesta = res.json()['choices'][0]['message']['content'].strip()
-                    placeholder.markdown(respuesta)
+            modelo_activo = check_lm_studio()
+            if not modelo_activo:
+                st.error("Lost connection to LM Studio.")
+            else:
+                with open(RUTA_TXT, "r", encoding="utf-8") as f:
+                    catalogo = f.read()
+                
+                sys_prompt = f"""You are a helpful and expert video game sommelier. Your primary language is {st.session_state.idioma}. 
+                You MUST select and recommend exactly ONE game from the following list to play today.
+                Explain briefly why it's a great choice based on the user's prompt. 
+                DO NOT recommend games that are not on this list.
+                USER'S GAMES LIST:\n{catalogo}"""
+                
+                try:
+                    mensajes_api = [{"role": "system", "content": sys_prompt}] + st.session_state.mensajes
+                    res = requests.post("http://localhost:2901/v1/chat/completions", json={
+                        "model": modelo_activo,
+                        "messages": mensajes_api,
+                        "temperature": 0.7
+                    })
+                    respuesta = res.json()['choices'][0]['message']['content']
+                    st.write(respuesta)
                     st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
-                else:
-                    placeholder.error(f"Error de LM Studio. Código {res.status_code}")
-            except:
-                placeholder.error("Error de conexión. ¿Se ha apagado LM Studio?")
+                except Exception as e:
+                    st.error(f"Error communicating with AI: {e}")
 
 # ==========================================
-# ENRUTADOR DE PANTALLAS
+# FOOTER DE NAVEGACIÓN (BOTONES FIJOS ABAJO)
 # ==========================================
-if not os.path.exists(RUTA_TXT):
-    pantalla_onboarding()
-else:
-    pantalla_chatbot()
+if st.session_state.paso < 4:
+    col_izq, col_espacio, col_der = st.columns([1, 3, 1])
+    
+    with col_izq:
+        if st.session_state.paso > 1:
+            st.button(T["back"], on_click=retroceder, use_container_width=True)
+            
+    with col_der:
+        bloqueado = False
+        if st.session_state.paso == 2 and not check_lm_studio(): bloqueado = True
+        if st.session_state.paso == 3 and not os.path.exists(RUTA_TXT): bloqueado = True
+        
+        st.button(T["next"], on_click=avanzar, disabled=bloqueado, type="primary", use_container_width=True)
