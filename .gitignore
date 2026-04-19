@@ -1,0 +1,14 @@
+# Archivos temporales de Python
+__pycache__/
+*.py[cod]
+
+# Carpetas del compilador PyInstaller
+build/
+dist/
+*.spec
+
+# Archivos de datos del usuario
+juegos_filtrados.txt
+
+# Configuración local de Streamlit
+.streamlit/
