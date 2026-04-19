@@ -12,3 +12,9 @@ juegos_filtrados.txt
 
 # Configuración local de Streamlit
 .streamlit/
+
+# Archivos de compilación de PyInstaller
+build/
+dist/
+*.spec
+*.exe
