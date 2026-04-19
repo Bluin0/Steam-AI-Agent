@@ -1,4 +1,4 @@
-English Description: Steam AI Assistant
+Steam AI Assistant
 Steam AI Assistant is a privacy-first, fully local AI chatbot designed to act as your personal video game sommelier. It seamlessly scans your local Steam installation, filtering out DLCs, SDKs, and development tools to build a clean database of your actual playable games. Powered by local LLMs via LM Studio, it analyzes your library and provides personalized game recommendations based on your mood, genre preferences, or just pure randomness—all without ever sending your data to the cloud.
 
 Key Features:
