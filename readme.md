@@ -1,17 +1,12 @@
-# 🎮 Steam AI Assistant
+English Description: Steam AI Assistant
+Steam AI Assistant is a privacy-first, fully local AI chatbot designed to act as your personal video game sommelier. It seamlessly scans your local Steam installation, filtering out DLCs, SDKs, and development tools to build a clean database of your actual playable games. Powered by local LLMs via LM Studio, it analyzes your library and provides personalized game recommendations based on your mood, genre preferences, or just pure randomness—all without ever sending your data to the cloud.
 
-Un chatbot asistente personal que escanea tu biblioteca local de Steam y utiliza Inteligencia Artificial 100% local (sin internet y privada) para recomendarte a qué jugar según tus gustos, tu estado de ánimo o de forma aleatoria.
+Key Features:
 
-## ✨ Características
-- **Escaneo Automático:** Lee directamente tu instalación de Steam y filtra automáticamente los DLCs, Servidores y herramientas de desarrollo usando la API oficial.
-- **Auto-detección de IA:** Se conecta de forma nativa con LM Studio y detecta automáticamente qué modelo tienes cargado.
-- **Privacidad 100%:** Todo el razonamiento de la IA se ejecuta en tu propia tarjeta gráfica.
+🧠 100% Local AI: Connects seamlessly to LM Studio to run models locally on your hardware. Zero data tracking, total privacy.
 
-## 🚀 Cómo usarlo (Para Usuarios)
-Si solo quieres usar la aplicación, descarga el archivo `.exe` desde la sección de **Releases** en GitHub. ¡Haz doble clic y sigue el tutorial en pantalla!
+🕵️‍♂️ Smart Library Scanner: Automatically parses your Steam librarycache or userdata folders, using the official Steam API to translate AppIDs into real game names while aggressively filtering out non-game software.
 
-## 💻 Instalación (Para Desarrolladores)
+🤖 Context-Aware Chatbot: A specialized gaming assistant that knows your library inside out and strictly recommends games you actually own.
 
-1. Clona este repositorio:
-   ```bash
-   git clone [https://github.com/TuUsuario/Steam-AI-Assistant.git](https://github.com/TuUsuario/Steam-AI-Assistant.git)
+🎮 User-Friendly Setup: Features an interactive onboarding wizard to guide users of all levels through configuring their local AI server and syncing their library.
